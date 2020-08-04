@@ -3,6 +3,8 @@
 from aiohttp import web
 from asyncio import sleep, subprocess, gather, Lock, shield
 from collections import OrderedDict
+from contextlib import asynccontextmanager
+import aiohttp
 import argparse
 import ast
 import logging
@@ -16,17 +18,81 @@ else:
     from asyncio import create_task
 
 
+@asynccontextmanager
+async def captive_portal_get(*args, **kwargs):
+    conn = aiohttp.UnixConnector(path='/run/captive-portal.sock')
+    async with aiohttp.ClientSession(connector=conn) as session:
+        async with session.get(*args, **kwargs) as resp:
+            yield resp
+
+
+async def list_networks():
+    async with captive_portal_get('http://localhost/list-networks') as resp:
+        return await resp.json()
+
+
+async def connect(essid, password):
+    params = {
+        "essid": essid,
+        "password": password,
+    }
+    async with captive_portal_get('http://localhost/connect', params=params) as resp:
+        status = resp.status
+    return status
+
+
+async def is_portal():
+    async with captive_portal_get('http://localhost/portal') as resp:
+        return await resp.json()
+
+
+###################################################################################################
+
+
+async def route_list_networks(request):
+    json = await list_networks()
+    return web.json_response(json)
+
+
+async def route_connect(request):
+    json = await request.json()
+    try:
+        res = await connect(json['essid'], json['password'])
+    except KeyError:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "You must specify the `essid` and the `password`.",
+            },
+            status=400
+        )
+    else:
+        if res < 400:
+            return web.json_response({
+                "success": True,
+            })
+        else:
+            return web.json_response({
+                "success": False,
+                "reason": "Unknown",
+            }, status=res)
+
+
+async def route_portal(request):
+    res = await is_portal()
+    return web.json_response({"portal": res})
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("third-i-backend")
 app = web.Application()
-#app.on_startup.append(start_ap_on_startup)
-#app.on_cleanup.append(kill_daemons_on_cleanup)
-#app.on_cleanup.append(shutdown_interface)
-#app.add_routes([web.get("/start-ap", route_start_ap)])
-#app.add_routes([web.get("/list-networks", route_list_networks)])
-#app.add_routes([web.get("/connect", route_connect)])
-#app.add_routes([web.get("/portal", route_ap)])
+app.add_routes(
+    [
+    web.get('/list-networks', route_list_networks),
+    web.post('/connect', route_connect),
+    web.get('/portal', route_portal),
+    ]
+)
 
 parser = argparse.ArgumentParser(description="Backend for the thingy")
 parser.add_argument(
