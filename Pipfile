@@ -1,0 +1,19 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[scripts]
+prod = "./third-i-backend.py"
+dev = "adev runserver third-i-backend.py"
+fmt = "yapf -i --recursive ."
+
+[dev-packages]
+aiohttp-devtools = "*"
+yapf = "*"
+
+[packages]
+aiohttp = "*"
+
+[requires]
+python_version = "3.8"
