@@ -21,5 +21,5 @@ pipenv install --dev
 Run the dev server:
 
 ```
-pipenv run dev
+CAPTIVE_PORTAL=/run/captive-portal.sock pipenv run dev
 ```
