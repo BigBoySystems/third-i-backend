@@ -17,6 +17,41 @@ if sys.version_info.major == 3 and sys.version_info.minor < 7:
 else:
     from asyncio import create_task
 
+CONFIG_PARSER = re.compile(r"^(\w+)=(.*)$", flags=re.MULTILINE)
+ALLOWED_CONFIG_VALUE_CHARS = re.compile(r"^[a-zA-Z0-9:-]*$")
+ALLOWED_CONFIG_KEYS = """
+    photo_resolution
+    video_width
+    video_mode
+    video_height
+    video_fps
+    video_bitrate
+    video_profile
+    rtmp_url
+    rtmp_enabled
+    mpegts_clients
+    mpegts_enabled
+    rtsp_enabled
+    usb_enabled
+    audio_enabled
+    video_wb
+    exposure
+    contrast
+    sharpness
+    digitalgain
+    wifi_iface
+    wifi_ssid
+    wifi_psk
+    record_enabled
+    record_time
+    dec_enabled
+    up_down
+    swapcams
+    udp_clients
+    udp_enabled
+    ws_enabled
+""".split()
+
 
 @asynccontextmanager
 async def captive_portal_get(*args, **kwargs):
@@ -54,6 +89,17 @@ async def start_ap():
     async with captive_portal_get('http://localhost/start-ap') as resp:
         status = resp.status
     return status
+
+
+async def update_config(patch):
+    with open(app["config"], "rt") as fh:
+        content = fh.read()
+    config = OrderedDict([(x[0], x[1]) for x in CONFIG_PARSER.findall(content)])
+    assert len(config) > 0, "configuration couldn't seem to be loaded"
+    config.update(patch)
+    content = "\n".join(["%s=%s" % (k, v) for (k, v) in config.items()])
+    with open(app["config"], "wt") as fh:
+        print(content, file=fh)
 
 
 ###################################################################################################
@@ -103,6 +149,37 @@ async def route_start_ap(request):
         }, status=res)
 
 
+async def route_config_update(request):
+    json = await request.json()
+    if not isinstance(json, dict):
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "Only object accepted",
+            }, status=400
+        )
+    for (k, v) in json.items():
+        if k not in ALLOWED_CONFIG_KEYS:
+            return web.json_response(
+                {
+                "success": False,
+                "reason": "Key not allowed: %s" % k,
+                }, status=403
+            )
+        if not ALLOWED_CONFIG_VALUE_CHARS.match(v):
+            return web.json_response(
+                {
+                "success": False,
+                "reason": "Invalid character in key's value: %s" % k,
+                },
+                status=403
+            )
+    await update_config(json)
+    return web.json_response({
+        "success": True,
+    })
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("third-i-backend")
 app = web.Application()
@@ -112,6 +189,7 @@ app.add_routes(
     web.post('/connect', route_connect),
     web.get('/portal', route_portal),
     web.post('/start-ap', route_start_ap),
+    web.patch('/config', route_config_update),
     ]
 )
 
@@ -147,6 +225,7 @@ if __name__ == "__main__":
         logger.setLevel(logging.DEBUG)
 
     app["captive-portal"] = args.captive_portal
+    app["config"] = "/boot/stereopi.conf"
 
     web.run_app(
         app,
@@ -163,3 +242,4 @@ else:
 
     # development mode
     app["captive-portal"] = os.environ["CAPTIVE_PORTAL"]
+    app["config"] = os.environ["CONFIG"]
