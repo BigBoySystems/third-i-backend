@@ -37,8 +37,9 @@ async def list_networks():
 async def connect(essid, password):
     params = {
         "essid": essid,
-        "password": password,
     }
+    if password is not None:
+        params["password"] = password
     async with captive_portal_get('http://localhost/connect', params=params) as resp:
         status = resp.status
     return status
@@ -60,14 +61,13 @@ async def route_list_networks(request):
 async def route_connect(request):
     json = await request.json()
     try:
-        res = await connect(json['essid'], json['password'])
+        res = await connect(json['essid'], json.get('password'))
     except KeyError:
         return web.json_response(
             {
             "success": False,
-            "reason": "You must specify the `essid` and the `password`.",
-            },
-            status=400
+            "reason": "You must specify the `essid`.",
+            }, status=400
         )
     else:
         if res < 400:
