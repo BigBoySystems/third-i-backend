@@ -21,5 +21,5 @@ pipenv install --dev
 Run the dev server:
 
 ```
-CAPTIVE_PORTAL=/run/captive-portal.sock pipenv run dev
+CONFIG=/tmp/stereopi.conf CAPTIVE_PORTAL=/run/captive-portal.sock pipenv run dev
 ```
