@@ -50,6 +50,12 @@ async def is_portal():
         return await resp.json()
 
 
+async def start_ap():
+    async with captive_portal_get('http://localhost/start-ap') as resp:
+        status = resp.status
+    return status
+
+
 ###################################################################################################
 
 
@@ -85,6 +91,18 @@ async def route_portal(request):
     return web.json_response({"portal": res})
 
 
+async def route_start_ap(request):
+    res = await start_ap()
+    if res < 400:
+        return web.json_response({
+            "success": True,
+        })
+    else:
+        return web.json_response({
+            "success": False,
+        }, status=res)
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("third-i-backend")
 app = web.Application()
@@ -93,6 +111,7 @@ app.add_routes(
     web.get('/list-networks', route_list_networks),
     web.post('/connect', route_connect),
     web.get('/portal', route_portal),
+    web.post('/start-ap', route_start_ap),
     ]
 )
 
