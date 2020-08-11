@@ -20,9 +20,12 @@ else:
 
 @asynccontextmanager
 async def captive_portal_get(*args, **kwargs):
-    conn = aiohttp.UnixConnector(path='/run/captive-portal.sock')
+    logger.debug("Connecting to captive portal socket...")
+    conn = aiohttp.UnixConnector(path=app["captive-portal"])
     async with aiohttp.ClientSession(connector=conn) as session:
+        logger.debug("Query captive portal: args=%r kwargs=%r", args, kwargs)
         async with session.get(*args, **kwargs) as resp:
+            logger.debug("Received captive portal response: %s", resp.status)
             yield resp
 
 
