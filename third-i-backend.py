@@ -77,7 +77,6 @@ async def route_connect(request):
         else:
             return web.json_response({
                 "success": False,
-                "reason": "Unknown",
             }, status=res)
 
 
