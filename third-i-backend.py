@@ -92,20 +92,26 @@ async def start_ap():
 
 
 async def update_config(patch):
-    with open(app["config"], "rt") as fh:
-        content = fh.read()
-    config = OrderedDict([(x[0], x[1]) for x in CONFIG_PARSER.findall(content)])
-    assert len(config) > 0, "configuration couldn't seem to be loaded"
+    config = await get_config()
     config.update(patch)
     content = "\n".join(["%s=%s" % (k, v) for (k, v) in config.items()])
     with open(app["config"], "wt") as fh:
         print(content, file=fh)
+    return config
+
+
+async def get_config():
+    with open(app["config"], "rt") as fh:
+        content = fh.read()
+    config = OrderedDict([(x[0], x[1]) for x in CONFIG_PARSER.findall(content)])
+    assert len(config) > 0, "configuration couldn't seem to be loaded"
+    return config
 
 
 ###################################################################################################
 
 
-async def route_list_networks(request):
+async def route_list_networks(_request):
     json = await list_networks()
     return web.json_response(json)
 
@@ -132,12 +138,12 @@ async def route_connect(request):
             }, status=res)
 
 
-async def route_portal(request):
+async def route_portal(_request):
     res = await is_portal()
     return web.json_response({"portal": res})
 
 
-async def route_start_ap(request):
+async def route_start_ap(_request):
     res = await start_ap()
     if res < 400:
         return web.json_response({
@@ -180,6 +186,11 @@ async def route_config_update(request):
     })
 
 
+async def route_get_config(_request):
+    json = await get_config()
+    return web.json_response(json)
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("third-i-backend")
 app = web.Application()
@@ -190,6 +201,7 @@ app.add_routes(
     web.get('/portal', route_portal),
     web.post('/start-ap', route_start_ap),
     web.patch('/config', route_config_update),
+    web.get('/config', route_get_config),
     ]
 )
 
