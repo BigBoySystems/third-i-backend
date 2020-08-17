@@ -3,7 +3,6 @@
 from aiohttp import web
 from asyncio import sleep, subprocess, gather, Lock, shield
 from collections import OrderedDict
-from contextlib import asynccontextmanager
 import aiohttp
 import argparse
 import ast
@@ -11,6 +10,7 @@ import logging
 import os
 import re
 import sys
+import urllib
 
 if sys.version_info.major == 3 and sys.version_info.minor < 7:
     from asyncio import ensure_future as create_task
@@ -18,7 +18,7 @@ else:
     from asyncio import create_task
 
 CONFIG_PARSER = re.compile(r"^(\w+)=(.*)$", flags=re.MULTILINE)
-ALLOWED_CONFIG_VALUE_CHARS = re.compile(r"^[a-zA-Z0-9:-]*$")
+ALLOWED_CONFIG_VALUE_CHARS = re.compile(r"^[a-zA-Z0-9: -]*$")
 ALLOWED_CONFIG_KEYS = """
     photo_resolution
     video_width
@@ -53,20 +53,13 @@ ALLOWED_CONFIG_KEYS = """
 """.split()
 
 
-@asynccontextmanager
-async def captive_portal_get(*args, **kwargs):
+async def list_networks():
     logger.debug("Connecting to captive portal socket...")
     conn = aiohttp.UnixConnector(path=app["captive-portal"])
     async with aiohttp.ClientSession(connector=conn) as session:
-        logger.debug("Query captive portal: args=%r kwargs=%r", args, kwargs)
-        async with session.get(*args, **kwargs) as resp:
+        async with session.get('http://localhost/list-networks') as resp:
             logger.debug("Received captive portal response: %s", resp.status)
-            yield resp
-
-
-async def list_networks():
-    async with captive_portal_get('http://localhost/list-networks') as resp:
-        return await resp.json()
+            return await resp.json()
 
 
 async def connect(essid, password):
@@ -75,37 +68,82 @@ async def connect(essid, password):
     }
     if password is not None:
         params["password"] = password
-    async with captive_portal_get('http://localhost/connect', params=params) as resp:
-        status = resp.status
-    return status
+    logger.debug("Connecting to captive portal socket...")
+    conn = aiohttp.UnixConnector(path=app["captive-portal"])
+    async with aiohttp.ClientSession(connector=conn) as session:
+        logger.debug("Query captive portal: args=%r kwargs=%r", args, kwargs)
+        async with session.get('http://localhost/connect', params=params) as resp:
+            logger.debug("Received captive portal response: %s", resp.status)
+            return resp.status
 
 
 async def is_portal():
-    async with captive_portal_get('http://localhost/portal') as resp:
-        return await resp.json()
+    logger.debug("Connecting to captive portal socket...")
+    conn = aiohttp.UnixConnector(path=app["captive-portal"])
+    async with aiohttp.ClientSession(connector=conn) as session:
+        async with session.get('http://localhost/portal') as resp:
+            logger.debug("Received captive portal response: %s", resp.status)
+            return await resp.json()
 
 
 async def start_ap():
-    async with captive_portal_get('http://localhost/start-ap') as resp:
-        status = resp.status
-    return status
+    logger.debug("Connecting to captive portal socket...")
+    conn = aiohttp.UnixConnector(path=app["captive-portal"])
+    async with aiohttp.ClientSession(connector=conn) as session:
+        async with session.get('http://localhost/start-ap') as resp:
+            logger.debug("Received captive portal response: %s", resp.status)
+            return resp.status
+
+
+def try_unescape(s):
+    try:
+        return ast.literal_eval(s)
+    except Exception:
+        return s
 
 
 async def update_config(patch):
     config = await get_config()
     config.update(patch)
-    content = "\n".join(["%s=%s" % (k, v) for (k, v) in config.items()])
-    with open(app["config"], "wt") as fh:
-        print(content, file=fh)
+    query_string = urllib.parse.urlencode(config)
+    await run_check("php", "/var/www/html/saveconfig.php", query_string)
     return config
 
 
 async def get_config():
     with open(app["config"], "rt") as fh:
         content = fh.read()
-    config = OrderedDict([(x[0], x[1]) for x in CONFIG_PARSER.findall(content)])
+    config = OrderedDict([(x[0], try_unescape(x[1])) for x in CONFIG_PARSER.findall(content)])
     assert len(config) > 0, "configuration couldn't seem to be loaded"
     return config
+
+
+# process management
+
+
+async def run_proc(cmd, format_args, subprocess_args):
+    format_args.update({
+        "config": app["config"],
+    })
+    cmd = [x.format_map(format_args) for x in cmd]
+    logger.debug("Running command: %s", cmd)
+    return await subprocess.create_subprocess_exec(*cmd, **subprocess_args)
+
+
+async def run_check(*cmd, **format_args):
+    proc = await run_proc(cmd, format_args, {})
+    rc = await proc.wait()
+    if rc != 0:
+        raise Exception("command execution failed (exit status != 0): %s" % (cmd, ))
+
+
+async def run_capture_check(*cmd, **format_args):
+    proc = await run_proc(cmd, format_args, {"stdout": subprocess.PIPE})
+    rc = await proc.wait()
+    if rc != 0:
+        raise Exception("command execution failed (exit status != 0): %s" % (cmd, ))
+    stdout = await proc.stdout.read()
+    return stdout.decode("utf8")
 
 
 ###################################################################################################
