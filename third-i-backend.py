@@ -103,11 +103,12 @@ def try_unescape(s):
 
 
 async def update_config(patch):
-    config = await get_config()
-    config.update(patch)
-    query_string = urllib.parse.urlencode(config)
-    await run_check("php", "/var/www/html/saveconfig.php", query_string)
-    return config
+    async with app["lock"]:
+        config = await get_config()
+        config.update(patch)
+        query_string = urllib.parse.urlencode(config)
+        await run_check("php", "/var/www/html/saveconfig.php", query_string)
+        return config
 
 
 async def get_config():
@@ -232,6 +233,7 @@ async def route_get_config(_request):
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("third-i-backend")
 app = web.Application()
+app["lock"] = Lock()
 app.add_routes(
     [
     web.get('/list-networks', route_list_networks),
