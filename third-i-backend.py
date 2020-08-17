@@ -18,7 +18,7 @@ else:
     from asyncio import create_task
 
 CONFIG_PARSER = re.compile(r"^(\w+)=(.*)$", flags=re.MULTILINE)
-ALLOWED_CONFIG_VALUE_CHARS = re.compile(r"^[a-zA-Z0-9: -]*$")
+ALLOWED_CONFIG_VALUE_CHARS = re.compile(r"^[a-zA-Z0-9:. -]*$")
 ALLOWED_CONFIG_KEYS = """
     photo_resolution
     video_width
