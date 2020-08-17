@@ -1,0 +1,12 @@
+[Unit]
+Description=Third-I Backend on %I
+Requires=network.target
+After=network.target captive-portal@%i.service
+
+[Service]
+ExecStart=/usr/local/sbin/third-i-backend 0.0.0.0 8000 /run/captive-portal-%I.sock
+KillMode=process
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
