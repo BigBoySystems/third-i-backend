@@ -114,7 +114,7 @@ async def update_config(patch):
 async def get_config():
     with open(app["config"], "rt") as fh:
         content = fh.read()
-    config = OrderedDict([(x[0], try_unescape(x[1])) for x in CONFIG_PARSER.findall(content)])
+    config = OrderedDict([(x[0], str(try_unescape(x[1]))) for x in CONFIG_PARSER.findall(content)])
     assert len(config) > 0, "configuration couldn't seem to be loaded"
     return config
 
