@@ -104,19 +104,48 @@ def try_unescape(s):
 
 async def update_config(patch):
     async with app["lock"]:
-        config = await get_config()
+        config = get_config()
         config.update(patch)
         query_string = urllib.parse.urlencode(config)
         await run_check("php", "/var/www/html/saveconfig.php", query_string)
         return config
 
 
-async def get_config():
+def get_config():
     with open(app["config"], "rt") as fh:
         content = fh.read()
     config = OrderedDict([(x[0], str(try_unescape(x[1]))) for x in CONFIG_PARSER.findall(content)])
     assert len(config) > 0, "configuration couldn't seem to be loaded"
     return config
+
+
+def generate_file_tree(path=None, trim=None):
+    res = []
+    if path is None:
+        path = app["media"]
+    if trim is None:
+        trim = len(path) + 1
+    for entry in os.scandir(path):
+        if entry.is_symlink():
+            continue
+        p = os.path.join(path, entry.name)
+        url = "/files/%s" % urllib.parse.quote(p[trim:])
+        if entry.is_dir():
+            res.append(
+                {
+                "directory": True,
+                "name": entry.name,
+                "children": generate_file_tree(p, trim=trim),
+                "url": url,
+                }
+            )
+        if entry.is_file():
+            res.append({
+                "directory": False,
+                "name": entry.name,
+                "url": url,
+            })
+    return res
 
 
 # process management
@@ -226,7 +255,12 @@ async def route_config_update(request):
 
 
 async def route_get_config(_request):
-    json = await get_config()
+    json = get_config()
+    return web.json_response(json)
+
+
+async def route_list_files(_request):
+    json = generate_file_tree()
     return web.json_response(json)
 
 
@@ -242,6 +276,7 @@ app.add_routes(
     web.post('/start-ap', route_start_ap),
     web.patch('/config', route_config_update),
     web.get('/config', route_get_config),
+    web.get('/files', route_list_files),
     ]
 )
 
@@ -278,6 +313,7 @@ if __name__ == "__main__":
 
     app["captive-portal"] = args.captive_portal
     app["config"] = "/boot/stereopi.conf"
+    app["media"] = "/media"
 
     web.run_app(
         app,
@@ -295,3 +331,4 @@ else:
     # development mode
     app["captive-portal"] = os.environ["CAPTIVE_PORTAL"]
     app["config"] = os.environ["CONFIG"]
+    app["media"] = os.environ["MEDIA"]
