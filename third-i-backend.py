@@ -260,7 +260,12 @@ async def route_get_config(_request):
 
 
 async def route_list_files(_request):
-    json = generate_file_tree()
+    json = {
+        "name": "/",
+        "directory": True,
+        "children": generate_file_tree(),
+        "url": "/files",
+    }
     return web.json_response(json)
 
 
