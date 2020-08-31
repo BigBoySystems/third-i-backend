@@ -71,7 +71,6 @@ async def connect(essid, password):
     logger.debug("Connecting to captive portal socket...")
     conn = aiohttp.UnixConnector(path=app["captive-portal"])
     async with aiohttp.ClientSession(connector=conn) as session:
-        logger.debug("Query captive portal: args=%r kwargs=%r", args, kwargs)
         async with session.get('http://localhost/connect', params=params) as resp:
             logger.debug("Received captive portal response: %s", resp.status)
             return resp.status
