@@ -63,6 +63,7 @@ async def list_networks():
 
 
 async def connect(essid, password):
+    await sleep(1)
     params = {
         "essid": essid,
     }
@@ -86,6 +87,7 @@ async def is_portal():
 
 
 async def start_ap():
+    await sleep(1)
     logger.debug("Connecting to captive portal socket...")
     conn = aiohttp.UnixConnector(path=app["captive-portal"])
     async with aiohttp.ClientSession(connector=conn) as session:
@@ -186,7 +188,7 @@ async def route_list_networks(_request):
 async def route_connect(request):
     json = await request.json()
     try:
-        res = await connect(json['essid'], json.get('password'))
+        create_task(connect(json['essid'], json.get('password')))
     except KeyError:
         return web.json_response(
             {
@@ -195,14 +197,9 @@ async def route_connect(request):
             }, status=400
         )
     else:
-        if res < 400:
-            return web.json_response({
-                "success": True,
-            })
-        else:
-            return web.json_response({
-                "success": False,
-            }, status=res)
+        return web.json_response({
+            "success": True,
+        })
 
 
 async def route_portal(_request):
@@ -211,15 +208,10 @@ async def route_portal(_request):
 
 
 async def route_start_ap(_request):
-    res = await start_ap()
-    if res < 400:
-        return web.json_response({
-            "success": True,
-        })
-    else:
-        return web.json_response({
-            "success": False,
-        }, status=res)
+    create_task(start_ap())
+    return web.json_response({
+        "success": True,
+    })
 
 
 async def route_config_update(request):
