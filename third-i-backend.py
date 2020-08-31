@@ -204,7 +204,7 @@ async def route_connect(request):
 
 async def route_portal(_request):
     res = await is_portal()
-    return web.json_response({"portal": res})
+    return web.json_response(res)
 
 
 async def route_start_ap(_request):
