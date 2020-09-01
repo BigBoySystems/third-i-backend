@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 import urllib
 
@@ -150,6 +151,16 @@ def generate_file_tree(path=None, trim=None):
     return res
 
 
+class PathNotInMedia(Exception):
+    pass
+
+
+def check_path_in_media(path):
+    canonical_path = os.path.realpath(path)
+    if not canonical_path.startswith(app["media"]):
+        raise PathNotInMedia()
+
+
 # process management
 
 
@@ -261,6 +272,74 @@ async def route_list_files(_request):
     return web.json_response(json)
 
 
+async def route_get_file(request):
+    try:
+        path = os.path.join(app["media"], request.match_info['path'])
+        check_path_in_media(path)
+    except PathNotInMedia:
+        return web.Response(status=403)
+    else:
+        return web.Response(
+            headers={
+            "X-Accel-Redirect": path,
+            "Content-Disposition": request.query.get("disposition", "inline"),
+            }
+        )
+
+
+async def route_rename_file(request):
+    try:
+        filepath = os.path.join(app["media"], request.match_info['path'])
+        check_path_in_media(filepath)
+        json = await request.json()
+        check_path_in_media(json["dst"])
+        new_filepath = os.path.join(app["media"], json["dst"])
+        os.rename(filepath, new_filepath)
+    except PathNotInMedia:
+        return web.json_response({
+            "success": False,
+            "reason": "invalid path",
+        }, status=403)
+    except KeyError:
+        return web.json_response({
+            "success": False,
+            "reason": "The key 'dst' is missing",
+        })
+    except OSError as exc:
+        return web.json_response({
+            "success": False,
+            "reason": str(exc),
+        })
+    else:
+        return web.json_response({
+            "success": True,
+        })
+
+
+async def route_delete_file(request):
+    try:
+        filepath = os.path.join(app["media"], request.match_info['path'])
+        check_path_in_media(filepath)
+        try:
+            os.remove(filepath)
+        except IsADirectoryError:
+            shutil.rmtree(filepath)
+    except PathNotInMedia:
+        return web.json_response({
+            "success": False,
+            "reason": "invalid path",
+        }, status=403)
+    except OSError as exc:
+        return web.json_response({
+            "success": False,
+            "reason": str(exc),
+        })
+    else:
+        return web.json_response({
+            "success": True,
+        })
+
+
 async def route_make_photo(_request):
     output = await run_capture_check("php", "/var/www/html/make_photo.php")
     res = json.loads(output)
@@ -283,6 +362,9 @@ app.add_routes(
     web.patch('/config', route_config_update),
     web.get('/config', route_get_config),
     web.get('/files', route_list_files),
+    web.get('/files/{path:.+}', route_get_file),
+    web.patch('/files/{path:.+}', route_rename_file),
+    web.delete('/files/{path:.+}', route_delete_file),
     web.post('/make-photo', route_make_photo),
     ]
 )
