@@ -8,6 +8,7 @@ import argparse
 import ast
 import json
 import logging
+import mimetypes
 import os
 import re
 import shutil
@@ -138,6 +139,7 @@ def generate_file_tree(path=None, trim=None):
                 {
                 "directory": True,
                 "name": entry.name,
+                "path": path[trim:],
                 "children": generate_file_tree(p, trim=trim),
                 "url": url,
                 }
@@ -146,6 +148,7 @@ def generate_file_tree(path=None, trim=None):
             res.append({
                 "directory": False,
                 "name": entry.name,
+                "path": path[trim:],
                 "url": url,
             })
     return res
@@ -265,6 +268,7 @@ async def route_get_config(_request):
 async def route_list_files(_request):
     json = {
         "name": "/",
+        "path": "",
         "directory": True,
         "children": generate_file_tree(),
         "url": "/files",
@@ -276,6 +280,7 @@ async def route_get_file(request):
     try:
         path = os.path.join(app["media"], request.match_info['path'])
         check_path_in_media(path)
+        (mime, _encoding) = mimetypes.guess_type(path)
     except PathNotInMedia:
         return web.Response(status=403)
     else:
@@ -283,6 +288,7 @@ async def route_get_file(request):
             headers={
             "X-Accel-Redirect": path,
             "Content-Disposition": request.query.get("disposition", "inline"),
+            "Content-Type": mime,
             }
         )
 
@@ -292,8 +298,8 @@ async def route_rename_file(request):
         filepath = os.path.join(app["media"], request.match_info['path'])
         check_path_in_media(filepath)
         json = await request.json()
-        check_path_in_media(json["dst"])
         new_filepath = os.path.join(app["media"], json["dst"])
+        check_path_in_media(new_filepath)
         os.rename(filepath, new_filepath)
     except PathNotInMedia:
         return web.json_response({
@@ -301,15 +307,17 @@ async def route_rename_file(request):
             "reason": "invalid path",
         }, status=403)
     except KeyError:
-        return web.json_response({
+        return web.json_response(
+            {
             "success": False,
             "reason": "The key 'dst' is missing",
-        })
+            }, status=400
+        )
     except OSError as exc:
         return web.json_response({
             "success": False,
             "reason": str(exc),
-        })
+        }, status=400)
     else:
         return web.json_response({
             "success": True,
@@ -333,7 +341,7 @@ async def route_delete_file(request):
         return web.json_response({
             "success": False,
             "reason": str(exc),
-        })
+        }, status=400)
     else:
         return web.json_response({
             "success": True,
