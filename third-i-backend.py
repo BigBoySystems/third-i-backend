@@ -6,6 +6,7 @@ from collections import OrderedDict
 import aiohttp
 import argparse
 import ast
+import json
 import logging
 import os
 import re
@@ -260,6 +261,15 @@ async def route_list_files(_request):
     return web.json_response(json)
 
 
+async def route_make_photo(_request):
+    output = await run_capture_check("php", "/var/www/html/make_photo.php")
+    res = json.loads(output)
+    return web.json_response({
+        "success": True,
+        "filename": res["filename"],
+    })
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("third-i-backend")
 app = web.Application()
@@ -273,6 +283,7 @@ app.add_routes(
     web.patch('/config', route_config_update),
     web.get('/config', route_get_config),
     web.get('/files', route_list_files),
+    web.post('/make-photo', route_make_photo),
     ]
 )
 
