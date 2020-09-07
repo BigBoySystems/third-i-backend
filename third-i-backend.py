@@ -369,6 +369,14 @@ async def route_make_photo(_request):
     })
 
 
+async def route_disk_usage(_request):
+    (total, used, _free) = shutil.disk_usage(app["media"])
+    return web.json_response({
+        "used": used,
+        "total": total,
+    })
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("third-i-backend")
 app = web.Application()
@@ -386,6 +394,7 @@ app.add_routes(
     web.patch('/files/{path:.+}', route_rename_file),
     web.delete('/files/{path:.+}', route_delete_file),
     web.post('/make-photo', route_make_photo),
+    web.get('/disk-usage', route_disk_usage),
     ]
 )
 
