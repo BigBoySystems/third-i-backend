@@ -319,8 +319,20 @@ async def route_rename_file(request):
             "reason": str(exc),
         }, status=400)
     else:
+        (path, name) = os.path.split(new_filepath)
+        trim = len(app["media"]) + 1
+        is_dir = os.path.isdir(new_filepath)
+        file_entry = {
+            "name": name,
+            "path": path[trim:],
+            "directory": is_dir,
+            "url": "/files/%s" % urllib.parse.quote(new_filepath[trim:]),
+        }
+        if is_dir:
+            file_entry["children"] = generate_file_tree(new_filepath, trim=trim)
         return web.json_response({
             "success": True,
+            "file": file_entry,
         })
 
 
