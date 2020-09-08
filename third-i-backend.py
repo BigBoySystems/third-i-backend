@@ -129,7 +129,17 @@ def try_unescape(s):
         return s
 
 
+class InvalidConfigPatch(Exception):
+    pass
+
+
 async def update_config(patch):
+    for (k, v) in patch.items():
+        if k not in ALLOWED_CONFIG_KEYS:
+            raise InvalidConfigPatch("Key not allowed: %r" % k)
+        if not ALLOWED_CONFIG_VALUE_CHARS.match(v):
+            raise InvalidConfigPatch("Invalid character in key's value: %s" % k)
+
     async with app["lock"]:
         logger.debug("Updatding configuration with: %r", patch)
         app["config"].update(patch)
@@ -232,7 +242,7 @@ async def process_messages(rx, tx):
                             tx, {
                             "type": "PARAM_GIVE",
                             "key": value,
-                            "value": app["config"].get(value, ""),
+                            "value": app["config"][value],
                             }
                         )
                     elif data_type == "PARAM_SET":
@@ -363,26 +373,18 @@ async def route_config_update(request):
             "reason": "Only object accepted",
             }, status=400
         )
-    for (k, v) in json.items():
-        if k not in ALLOWED_CONFIG_KEYS:
-            return web.json_response(
-                {
-                "success": False,
-                "reason": "Key not allowed: %s" % k,
-                }, status=403
-            )
-        if not ALLOWED_CONFIG_VALUE_CHARS.match(v):
-            return web.json_response(
-                {
-                "success": False,
-                "reason": "Invalid character in key's value: %s" % k,
-                },
-                status=403
-            )
-    await update_config(json)
-    return web.json_response({
-        "success": True,
-    })
+    try:
+        config = await update_config(json)
+    except InvalidConfigPatch as exc:
+        return web.json_response({
+            "success": False,
+            "reason": str(exc),
+        }, status=403)
+    else:
+        return web.json_response({
+            "success": True,
+            "config": config,
+        })
 
 
 async def route_get_config(_request):
