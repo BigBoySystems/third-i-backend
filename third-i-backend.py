@@ -3,6 +3,7 @@
 from aiohttp import web
 from asyncio import sleep, subprocess, gather, Lock, shield
 from collections import OrderedDict
+from json import JSONDecodeError
 import aiohttp
 import argparse
 import ast
@@ -336,9 +337,16 @@ async def route_list_networks(_request):
 
 
 async def route_connect(request):
-    json = await request.json()
     try:
+        json = await request.json()
         create_task(connect(json['essid'], json.get('password')))
+    except JSONDecodeError as exc:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "could not decode JSON: %s" % exc,
+            }, status=400
+        )
     except KeyError:
         return web.json_response(
             {
@@ -365,7 +373,15 @@ async def route_start_ap(_request):
 
 
 async def route_config_update(request):
-    json = await request.json()
+    try:
+        json = await request.json()
+    except JSONDecodeError as exc:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "could not decode JSON: %s" % exc,
+            }, status=400
+        )
     if not isinstance(json, dict):
         return web.json_response(
             {
@@ -427,6 +443,13 @@ async def route_rename_file(request):
         new_filepath = os.path.join(app["media"], json["dst"])
         check_path_in_media(new_filepath)
         os.rename(filepath, new_filepath)
+    except JSONDecodeError as exc:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "could not decode JSON: %s" % exc,
+            }, status=400
+        )
     except PathNotInMedia:
         return web.json_response({
             "success": False,
