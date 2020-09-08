@@ -6,11 +6,13 @@ from collections import OrderedDict
 import aiohttp
 import argparse
 import ast
+import binascii
 import json
 import logging
 import mimetypes
 import os
 import re
+import serial_asyncio
 import shutil
 import sys
 import urllib
@@ -54,6 +56,9 @@ ALLOWED_CONFIG_KEYS = """
     udp_enabled
     ws_enabled
 """.split()
+RE_MESSAGE = re.compile(
+    b"^(PARAM_ASK|PARAM_SET|REC_START|REC_STOP|WIFI_ON|WIFI_OFF)\|((?:([^:]+):)?(.*))\|0x([0-9a-fA-F]+)\]$"
+)
 
 
 async def list_networks():
@@ -108,19 +113,11 @@ def try_unescape(s):
 
 async def update_config(patch):
     async with app["lock"]:
-        config = get_config()
-        config.update(patch)
-        query_string = urllib.parse.urlencode(config)
+        logger.debug("Updatding configuration with: %r", patch)
+        app["config"].update(patch)
+        query_string = urllib.parse.urlencode(app["config"])
         await run_check("php", "/var/www/html/saveconfig.php", query_string)
-        return config
-
-
-def get_config():
-    with open(app["config"], "rt") as fh:
-        content = fh.read()
-    config = OrderedDict([(x[0], str(try_unescape(x[1]))) for x in CONFIG_PARSER.findall(content)])
-    assert len(config) > 0, "configuration couldn't seem to be loaded"
-    return config
+        return app["config"]
 
 
 def generate_file_tree(path=None, trim=None):
@@ -195,6 +192,108 @@ async def run_capture_check(*cmd, **format_args):
 ###################################################################################################
 
 
+async def process_messages(rx, tx):
+    while True:
+        _ = await rx.readuntil(b"[")
+        async with app["serial_lock"]:
+            msg = await rx.readuntil(b"]")
+            logger.debug("Serial message received: %r", msg)
+            try:
+                (data_type, key, value) = parse_message(msg)
+            except Exception as exc:
+                logger.error("Serial message could not be parsed: %s", exc)
+            else:
+                try:
+                    logger.debug(
+                        "Serial message parsed: data_type=%r, key=%r, value=%r", data_type, key,
+                        value
+                    )
+
+                    if data_type == "PARAM_ASK":
+                        send_message(
+                            tx, {
+                            "type": "PARAM_GIVE",
+                            "key": value,
+                            "value": app["config"].get(value, ""),
+                            }
+                        )
+                    elif data_type == "PARAM_SET":
+                        logger.info("Set parameter %s=%r", key, value)
+                        await update_config({key: value})
+                    elif data_type == "REC_START":
+                        logger.info("Record started")
+                        await update_config({
+                            "record_enabled": "1",
+                        })
+                    elif data_type == "REC_STOP":
+                        logger.info("Record stopped")
+                        await update_config({
+                            "record_enabled": "0",
+                        })
+                    elif data_type == "WIFI_ON":
+                        logger.info("WiFi activated")
+                    elif data_type == "WIFI_OFF":
+                        logger.info("WiFi desactivated")
+                except Exception as exc:
+                    logger.exception("Could not answer to serial message: %s", exc)
+
+
+def send_message(tx, data):
+    logger.debug("Sending serial message: %r", data)
+    try:
+        data_type = data["type"].encode().upper()
+        key = data.get("key")
+        value = data.get("value", "")
+        if key is None:
+            data_content = value.encode()
+        else:
+            data_content = ("%s:%s" % (key, value)).encode()
+        checksum = binascii.crc32(data_type + b"|" + data_content)
+        msg = b"[%s|%s|0x%x]" % (data_type, data_content, checksum)
+    except Exception as exc:
+        logger.exception("Message could not be sent")
+    logger.debug("Sending serial message (raw): %r", msg)
+    tx.write(msg)
+
+
+class InvalidMessage(Exception):
+    def __str__(self):
+        return "Invalid message"
+
+
+class CorruptedMessage(Exception):
+    def __init__(self, got, expected):
+        self.got = got
+        self.expected = expected
+
+    def __str__(self):
+        return "Corrupted message (got: %x, expected: %x)" % (self.got, self.expected)
+
+
+def parse_message(msg):
+    parsed = RE_MESSAGE.match(msg)
+    if parsed is None:
+        raise InvalidMessage()
+
+    (data_type, data_content, key, value, checksum) = parsed.group(1, 2, 3, 4, 5)
+
+    verify = binascii.crc32(data_type + b"|" + data_content)
+
+    data_type = data_type.decode()
+    if key is not None:
+        key = key.decode()
+    value = value.decode()
+    checksum = int(checksum, 16)
+
+    if checksum != verify:
+        raise CorruptedMessage(checksum, verify)
+
+    return (data_type, key, value)
+
+
+###################################################################################################
+
+
 async def route_list_networks(_request):
     json = await list_networks()
     return web.json_response(json)
@@ -261,8 +360,7 @@ async def route_config_update(request):
 
 
 async def route_get_config(_request):
-    json = get_config()
-    return web.json_response(json)
+    return web.json_response(app["config"])
 
 
 async def route_list_files(_request):
@@ -377,10 +475,31 @@ async def route_disk_usage(_request):
     })
 
 
+async def get_config(app):
+    with open(app["config"], "rt") as fh:
+        content = fh.read()
+    config = OrderedDict([(x[0], str(try_unescape(x[1]))) for x in CONFIG_PARSER.findall(content)])
+    assert len(config) > 0, "configuration couldn't seem to be loaded"
+    app["config"] = config
+
+
+async def serial_communication(app):
+    if app["serial"] is None:
+        logger.info("No serial interface selected")
+        return
+    rx, tx = await serial_asyncio.open_serial_connection(
+        url=app["serial"], baudrate=app["serial_bauds"]
+    )
+    app["process_messages"] = create_task(process_messages(rx, tx))
+    app["serial_lock"] = Lock()
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("third-i-backend")
 app = web.Application()
 app["lock"] = Lock()
+app.on_startup.append(get_config)
+app.on_startup.append(serial_communication)
 app.add_routes(
     [
     web.get('/list-networks', route_list_networks),
@@ -412,6 +531,17 @@ parser.add_argument(
     help="open the server on a TCP/IP port",
 )
 parser.add_argument(
+    "--serial",
+    type=str,
+    help="use serial interface",
+)
+parser.add_argument(
+    "--bauds",
+    type=int,
+    default=115200,
+    help="open the server on a TCP/IP port",
+)
+parser.add_argument(
     "--debug",
     action="store_true",
     help="show debug logs",
@@ -432,6 +562,8 @@ if __name__ == "__main__":
     app["captive-portal"] = args.captive_portal
     app["config"] = "/boot/stereopi.conf"
     app["media"] = "/media"
+    app["serial"] = args.serial
+    app["serial_bauds"] = args.bauds
 
     web.run_app(
         app,
@@ -450,3 +582,5 @@ else:
     app["captive-portal"] = os.environ["CAPTIVE_PORTAL"]
     app["config"] = os.environ["CONFIG"]
     app["media"] = os.environ["MEDIA"]
+    app["serial"] = os.environ.get("SERIAL")
+    app["serial_bauds"] = int(os.environ.get("SERIAL_BAUDS", "115200"))
