@@ -37,3 +37,14 @@ CONFIG=/tmp/stereopi.conf \
     usually /media on the StereoPi
  *  `SERIAL`, optional, path to the serial device (the thingy with the buttons
     and the screen)
+
+### Sample data for the serial communication
+
+```
+[Hello]
+[PARAM_ASK|audio_enabled|0xff]
+[PARAM_ASK|audio_enabled|0x378c1418]
+[PARAM_SET|audio_enabled:1|0x3b95c0da]
+[WIFI_ON||0xb8514cc0]
+[WIFI_OFF||0x3bd7cea7]
+```

@@ -104,6 +104,24 @@ async def start_ap():
             return resp.status
 
 
+async def start_wifi():
+    logger.debug("Connecting to captive portal socket...")
+    conn = aiohttp.UnixConnector(path=app["captive-portal"])
+    async with aiohttp.ClientSession(connector=conn) as session:
+        async with session.get('http://localhost/wifi-on') as resp:
+            logger.debug("Received captive portal response: %s", resp.status)
+            return resp.status
+
+
+async def stop_wifi():
+    logger.debug("Connecting to captive portal socket...")
+    conn = aiohttp.UnixConnector(path=app["captive-portal"])
+    async with aiohttp.ClientSession(connector=conn) as session:
+        async with session.get('http://localhost/wifi-off') as resp:
+            logger.debug("Received captive portal response: %s", resp.status)
+            return resp.status
+
+
 def try_unescape(s):
     try:
         return ast.literal_eval(s)
@@ -231,9 +249,17 @@ async def process_messages(rx, tx):
                             "record_enabled": "0",
                         })
                     elif data_type == "WIFI_ON":
+                        logger.info("Activating WiFi...")
+                        status = await start_wifi()
+                        if status >= 400:
+                            raise Exception("Could not start WiFi (HTTP status %s)" % status)
                         logger.info("WiFi activated")
                     elif data_type == "WIFI_OFF":
-                        logger.info("WiFi desactivated")
+                        logger.info("Deactivating WiFi...")
+                        status = await stop_wifi()
+                        if status >= 400:
+                            raise Exception("Could not stop WiFi (HTTP status %s)" % status)
+                        logger.info("WiFi deactivated")
                 except Exception as exc:
                     logger.exception("Could not answer to serial message: %s", exc)
 
