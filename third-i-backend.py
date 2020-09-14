@@ -60,6 +60,7 @@ ALLOWED_CONFIG_KEYS = """
 RE_MESSAGE = re.compile(
     b"^(PARAM_ASK|PARAM_SET|REC_START|REC_STOP|WIFI_ON|WIFI_OFF)\|((?:([^:]+):)?(.*))\|0x([0-9a-fA-F]+)\]$"
 )
+LOG_LINES = 200
 
 
 async def list_networks():
@@ -197,7 +198,7 @@ async def run_proc(cmd, format_args, subprocess_args):
     format_args.update({
         "config": app["config"],
     })
-    cmd = [x.format_map(format_args) for x in cmd]
+    cmd = [str(x).format_map(format_args) for x in cmd]
     logger.debug("Running command: %s", cmd)
     return await subprocess.create_subprocess_exec(*cmd, **subprocess_args)
 
@@ -526,6 +527,16 @@ async def route_disk_usage(_request):
     })
 
 
+async def route_captive_portal_logs(_request):
+    output = await run_capture_check("journalctl", "-u", "captive-portal@*", "-n", LOG_LINES)
+    return web.Response(text=output)
+
+
+async def route_backend_logs(_request):
+    output = await run_capture_check("journalctl", "-u", "third-i-backend@*", "-n", LOG_LINES)
+    return web.Response(text=output)
+
+
 async def get_config(app):
     with open(app["config"], "rt") as fh:
         content = fh.read()
@@ -565,6 +576,8 @@ app.add_routes(
     web.delete('/files/{path:.+}', route_delete_file),
     web.post('/make-photo', route_make_photo),
     web.get('/disk-usage', route_disk_usage),
+    web.get('/logs/captive-portal', route_captive_portal_logs),
+    web.get('/logs/backend', route_backend_logs),
     ]
 )
 
