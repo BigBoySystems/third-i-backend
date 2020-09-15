@@ -49,4 +49,6 @@ CONFIG=/tmp/stereopi.conf \
 [PARAM_SET|invalid_key:1|0x6bafad8b]
 [WIFI_ON||0xb8514cc0]
 [WIFI_OFF||0x3bd7cea7]
+[REC_START||0x349c5788]
+[REC_STOP||0xf0f9e341]
 ```

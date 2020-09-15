@@ -147,6 +147,8 @@ async def update_config(patch):
         app["config"].update(patch)
         query_string = urllib.parse.urlencode(app["config"])
         await run_check("php", "/var/www/html/saveconfig.php", query_string)
+        if "record_enabled" in patch:
+            create_task(set_led(patch["record_enabled"] == "1"))
         return app["config"]
 
 
@@ -222,7 +224,7 @@ async def run_capture_check(*cmd, **format_args):
 ###################################################################################################
 
 
-async def process_messages(rx, tx):
+async def process_messages(rx):
     while True:
         _ = await rx.readuntil(b"[")
         async with app["serial_lock"]:
@@ -241,7 +243,7 @@ async def process_messages(rx, tx):
 
                     if data_type == "PARAM_ASK":
                         send_message(
-                            tx, {
+                            {
                             "type": "PARAM_GIVE",
                             "key": value,
                             "value": app["config"][value],
@@ -276,7 +278,7 @@ async def process_messages(rx, tx):
                     logger.exception("Could not answer to serial message: %s", exc)
 
 
-def send_message(tx, data):
+def send_message(data):
     logger.debug("Sending serial message: %r", data)
     try:
         data_type = data["type"].encode().upper()
@@ -291,7 +293,7 @@ def send_message(tx, data):
     except Exception as exc:
         logger.exception("Message could not be sent")
     logger.debug("Sending serial message (raw): %r", msg)
-    tx.write(msg)
+    app["tx"].write(msg)
 
 
 class InvalidMessage(Exception):
@@ -327,6 +329,16 @@ def parse_message(msg):
         raise CorruptedMessage(checksum, verify)
 
     return (data_type, key, value)
+
+
+async def set_led(state):
+    if app["serial"] is None:
+        return
+    async with app["serial_lock"]:
+        logger.info("Switching record led to: %r", bool(state))
+        send_message({
+            "type": ("LED_ON" if state else "LED_OFF"),
+        })
 
 
 ###################################################################################################
@@ -552,7 +564,8 @@ async def serial_communication(app):
     rx, tx = await serial_asyncio.open_serial_connection(
         url=app["serial"], baudrate=app["serial_bauds"]
     )
-    app["process_messages"] = create_task(process_messages(rx, tx))
+    app["tx"] = tx
+    app["process_messages"] = create_task(process_messages(rx))
     app["serial_lock"] = Lock()
 
 
