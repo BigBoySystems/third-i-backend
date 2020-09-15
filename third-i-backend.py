@@ -61,6 +61,7 @@ RE_MESSAGE = re.compile(
     b"^(PARAM_ASK|PARAM_SET|REC_START|REC_STOP|WIFI_ON|WIFI_OFF)\|((?:([^:]+):)?(.*))\|0x([0-9a-fA-F]+)\]$"
 )
 LOG_LINES = 200
+MAX_PRESETS = 10
 
 
 async def list_networks():
@@ -135,12 +136,18 @@ class InvalidConfigPatch(Exception):
     pass
 
 
-async def update_config(patch):
+def verify_config(patch):
     for (k, v) in patch.items():
         if k not in ALLOWED_CONFIG_KEYS:
             raise InvalidConfigPatch("Key not allowed: %r" % k)
+        if not isinstance(v, str):
+            raise InvalidConfigPatch("Only string are allow in key's value")
         if not ALLOWED_CONFIG_VALUE_CHARS.match(v):
             raise InvalidConfigPatch("Invalid character in key's value: %s" % k)
+
+
+async def update_config(patch):
+    verify_config(patch)
 
     async with app["lock"]:
         logger.debug("Updatding configuration with: %r", patch)
@@ -193,12 +200,17 @@ def check_path_in_media(path):
         raise PathNotInMedia()
 
 
+def save_presets():
+    with open(app["presets_json"], "wt") as fh:
+        fh.write(json.dumps(app["presets"]))
+
+
 # process management
 
 
 async def run_proc(cmd, format_args, subprocess_args):
     format_args.update({
-        "config": app["config"],
+        "stereopi_conf": app["stereopi_conf"],
     })
     cmd = [str(x).format_map(format_args) for x in cmd]
     logger.debug("Running command: %s", cmd)
@@ -402,6 +414,19 @@ async def route_config_update(request):
             "reason": "Only object accepted",
             }, status=400
         )
+    if "preset" in json:
+        name = json.pop("preset")
+        try:
+            new_config = dict(app["presets"][name])
+            new_config.update(json)
+            json = new_config
+        except KeyError:
+            return web.json_response(
+                {
+                "success": False,
+                "reason": "preset %r does not exist" % name,
+                }, status=404
+            )
     try:
         config = await update_config(json)
     except InvalidConfigPatch as exc:
@@ -549,12 +574,99 @@ async def route_backend_logs(_request):
     return web.Response(text=output)
 
 
+async def route_get_preset(request):
+    name = request.match_info["name"]
+    try:
+        config = app["presets"][name]
+    except KeyError:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "preset %r does not exist" % name,
+            }, status=404
+        )
+    else:
+        return web.json_response({
+            "success": True,
+            "config": config,
+        })
+
+
+async def route_replace_preset(request):
+    name = request.match_info["name"]
+    if name not in app["presets"] and len(app["presets"]) >= MAX_PRESETS:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "maximum number of allowed presets reached",
+            }, status=400
+        )
+    try:
+        config = await request.json()
+        verify_config(config)
+        app["presets"][name] = config
+        save_presets()
+    except KeyError:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "preset %r does not exist" % name,
+            }, status=404
+        )
+    except JSONDecodeError as exc:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "could not decode JSON: %s" % exc,
+            }, status=400
+        )
+    except InvalidConfigPatch as exc:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "invalid config: %s" % exc,
+            }, status=400
+        )
+    else:
+        return web.json_response({
+            "success": True,
+        })
+
+
+async def route_delete_preset(request):
+    name = request.match_info["name"]
+    try:
+        del app["presets"][name]
+        save_presets()
+    except KeyError:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "preset %r does not exist" % name,
+            }, status=404
+        )
+    else:
+        return web.json_response({
+            "success": True,
+        })
+
+
 async def get_config(app):
-    with open(app["config"], "rt") as fh:
+    with open(app["stereopi_conf"], "rt") as fh:
         content = fh.read()
     config = OrderedDict([(x[0], str(try_unescape(x[1]))) for x in CONFIG_PARSER.findall(content)])
     assert len(config) > 0, "configuration couldn't seem to be loaded"
     app["config"] = config
+
+
+async def get_presets(app):
+    try:
+        with open(app["presets_json"], "rt") as fh:
+            presets = json.loads(fh.read())
+        assert isinstance(presets, dict), "'presets' is not an object"
+        app["presets"] = presets
+    except FileNotFoundError:
+        app["presets"] = {}
 
 
 async def serial_communication(app):
@@ -574,6 +686,7 @@ logger = logging.getLogger("third-i-backend")
 app = web.Application()
 app["lock"] = Lock()
 app.on_startup.append(get_config)
+app.on_startup.append(get_presets)
 app.on_startup.append(serial_communication)
 app.add_routes(
     [
@@ -591,6 +704,9 @@ app.add_routes(
     web.get('/disk-usage', route_disk_usage),
     web.get('/logs/captive-portal', route_captive_portal_logs),
     web.get('/logs/backend', route_backend_logs),
+    web.get('/preset/{name}', route_get_preset),
+    web.post('/preset/{name}', route_replace_preset),
+    web.delete('/preset/{name}', route_delete_preset),
     ]
 )
 
@@ -637,7 +753,8 @@ if __name__ == "__main__":
         logger.setLevel(logging.DEBUG)
 
     app["captive-portal"] = args.captive_portal
-    app["config"] = "/boot/stereopi.conf"
+    app["stereopi_conf"] = "/boot/stereopi.conf"
+    app["presets_json"] = "/boot/presets.json"
     app["media"] = "/media"
     app["serial"] = args.serial
     app["serial_bauds"] = args.bauds
@@ -657,7 +774,8 @@ else:
 
     # development mode
     app["captive-portal"] = os.environ["CAPTIVE_PORTAL"]
-    app["config"] = os.environ["CONFIG"]
+    app["stereopi_conf"] = os.environ["STEREOPI_CONF"]
+    app["presets_json"] = os.environ["PRESETS_JSON"]
     app["media"] = os.environ["MEDIA"]
     app["serial"] = os.environ.get("SERIAL")
     app["serial_bauds"] = int(os.environ.get("SERIAL_BAUDS", "115200"))
