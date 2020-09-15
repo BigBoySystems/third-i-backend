@@ -200,9 +200,13 @@ def check_path_in_media(path):
         raise PathNotInMedia()
 
 
-def save_presets():
+async def save_presets():
+    if app["prod"]:
+        await run_check("mount", "-o", "remount,rw", "/boot")
     with open(app["presets_json"], "wt") as fh:
         fh.write(json.dumps(app["presets"]))
+    if app["prod"]:
+        await run_check("mount", "-o", "remount,ro", "/boot")
 
 
 # process management
@@ -605,7 +609,7 @@ async def route_replace_preset(request):
         config = await request.json()
         verify_config(config)
         app["presets"][name] = config
-        save_presets()
+        await save_presets()
     except KeyError:
         return web.json_response(
             {
@@ -637,7 +641,7 @@ async def route_delete_preset(request):
     name = request.match_info["name"]
     try:
         del app["presets"][name]
-        save_presets()
+        await save_presets()
     except KeyError:
         return web.json_response(
             {
@@ -752,6 +756,7 @@ if __name__ == "__main__":
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
+    app["prod"] = True
     app["captive-portal"] = args.captive_portal
     app["stereopi_conf"] = "/boot/stereopi.conf"
     app["presets_json"] = "/boot/presets.json"
@@ -773,6 +778,7 @@ else:
     logger.setLevel(logging.DEBUG)
 
     # development mode
+    app["prod"] = False
     app["captive-portal"] = os.environ["CAPTIVE_PORTAL"]
     app["stereopi_conf"] = os.environ["STEREOPI_CONF"]
     app["presets_json"] = os.environ["PRESETS_JSON"]
