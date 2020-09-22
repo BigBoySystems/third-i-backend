@@ -578,6 +578,13 @@ async def route_backend_logs(_request):
     return web.Response(text=output)
 
 
+async def route_list_preset(_request):
+    return web.json_response({
+        "success": True,
+        "presets": list(app["presets"].keys()),
+    })
+
+
 async def route_get_preset(request):
     name = request.match_info["name"]
     try:
@@ -708,6 +715,7 @@ app.add_routes(
     web.get('/disk-usage', route_disk_usage),
     web.get('/logs/captive-portal', route_captive_portal_logs),
     web.get('/logs/backend', route_backend_logs),
+    web.get('/list-presets', route_list_preset),
     web.get('/preset/{name}', route_get_preset),
     web.post('/preset/{name}', route_replace_preset),
     web.delete('/preset/{name}', route_delete_preset),
