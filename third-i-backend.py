@@ -352,7 +352,7 @@ async def set_led(state):
         return
     async with app["serial_lock"]:
         logger.info("Switching record led to: %r", bool(state))
-        await sleep(1) # NOTE: leave some time to the ATmega328 to process the next message
+        await sleep(1)  # NOTE: leave some time to the ATmega328 to process the next message
         send_message({
             "type": ("LED_ON" if state else "LED_OFF"),
             "value": "-",
@@ -393,6 +393,7 @@ async def route_connect(request):
 
 async def route_portal(_request):
     res = await is_portal()
+    res["serial"] = app["serial_number"]
     return web.json_response(res)
 
 
@@ -773,6 +774,8 @@ if __name__ == "__main__":
     app["media"] = "/media"
     app["serial"] = args.serial
     app["serial_bauds"] = args.bauds
+    with open("/boot/serial", "rt") as fh:
+        app["serial_number"] = fh.read().strip()
 
     web.run_app(
         app,
@@ -795,3 +798,4 @@ else:
     app["media"] = os.environ["MEDIA"]
     app["serial"] = os.environ.get("SERIAL")
     app["serial_bauds"] = int(os.environ.get("SERIAL_BAUDS", "115200"))
+    app["serial_number"] = "DEV"
