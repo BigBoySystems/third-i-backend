@@ -352,8 +352,10 @@ async def set_led(state):
         return
     async with app["serial_lock"]:
         logger.info("Switching record led to: %r", bool(state))
+        await sleep(1) # NOTE: leave some time to the ATmega328 to process the next message
         send_message({
             "type": ("LED_ON" if state else "LED_OFF"),
+            "value": "-",
         })
 
 
