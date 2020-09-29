@@ -359,6 +359,32 @@ async def set_led(state):
         })
 
 
+async def set_camera_mode(mode):
+    if app["serial"] is None:
+        return
+    async with app["serial_lock"]:
+        mode = app["camera_mode"].get()
+        logger.info("Informing mode change: %s", mode)
+        send_message({
+            "type": "GIVE_MODE",
+            "value": mode,
+        })
+
+
+
+async def inform_mode_state(mode):
+    if app["serial"] is None:
+        return
+    async with app["serial_lock"]:
+        mode = app["camera_mode"].get()
+        logger.info("Informing mode change: %s", mode)
+        send_message({
+            "type": "GIVE_MODE",
+            "value": mode,
+        })
+
+
+
 ###################################################################################################
 
 
@@ -664,6 +690,37 @@ async def route_delete_preset(request):
             "success": True,
         })
 
+async def route_set_camera_mode(request):
+    try:
+        json = await request.json()
+        mode = json["mode"]
+        if mode == "photo" or mode == "video":
+            app["camera_mode").set(mode)
+        else:
+            return web.json_response(
+                {
+                "success": False,
+                "reason": "invalid camera mode: %s" % mode,
+                }, status=400
+            )
+    except JSONDecodeError as exc:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "could not decode JSON: %s" % exc,
+            }, status=400
+        )
+    except KeyError as exc:
+        return web.json_response(
+            {
+            "success": False,
+            "reason": "invalid JSON input: %s" % exc,
+            }, status=400
+        )
+    else:
+        return web.json_response({
+            "success": True,
+        })
 
 async def get_config(app):
     with open(app["stereopi_conf"], "rt") as fh:
@@ -695,6 +752,24 @@ async def serial_communication(app):
     app["serial_lock"] = Lock()
 
 
+class Container:
+    """
+    Help against the deprecation warning when storing a value in `app` and re-assigning during
+    execution
+    """
+    def __init__(self, value):
+        self.value = value
+
+    def __bool__(self):
+        return bool(self.value)
+
+    def set(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("third-i-backend")
 app = web.Application()
@@ -722,6 +797,7 @@ app.add_routes(
     web.get('/preset/{name}', route_get_preset),
     web.post('/preset/{name}', route_replace_preset),
     web.delete('/preset/{name}', route_delete_preset),
+    web.post('/camera-mode', route_set_camera_mode),
     ]
 )
 
@@ -772,6 +848,7 @@ if __name__ == "__main__":
     app["stereopi_conf"] = "/boot/stereopi.conf"
     app["presets_json"] = "/boot/presets.json"
     app["media"] = "/media"
+    app["camera_mode"] = Container("video")
     app["serial"] = args.serial
     app["serial_bauds"] = args.bauds
     with open("/boot/serial", "rt") as fh:
@@ -795,6 +872,7 @@ else:
     app["captive-portal"] = os.environ["CAPTIVE_PORTAL"]
     app["stereopi_conf"] = os.environ["STEREOPI_CONF"]
     app["presets_json"] = os.environ["PRESETS_JSON"]
+    app["camera_mode"] = Container("photo")
     app["media"] = os.environ["MEDIA"]
     app["serial"] = os.environ.get("SERIAL")
     app["serial_bauds"] = int(os.environ.get("SERIAL_BAUDS", "115200"))
