@@ -58,7 +58,7 @@ ALLOWED_CONFIG_KEYS = """
     ws_enabled
 """.split()
 RE_MESSAGE = re.compile(
-    b"^(PARAM_ASK|PARAM_SET|REC_START|REC_STOP|WIFI_ON|WIFI_OFF)\|((?:([^:]+):)?(.*))\|0x([0-9a-fA-F]+)\]$"
+    b"^(PARAM_ASK|PARAM_SET|REC_START|REC_STOP|WIFI_ON|WIFI_OFF|TAKE_PICTURE)\|((?:([^:]+):)?(.*))\|0x([0-9a-fA-F]+)\]$"
 )
 LOG_LINES = 200
 MAX_PRESETS = 10
@@ -209,6 +209,11 @@ async def save_presets():
         await run_check("mount", "-o", "remount,ro", "/boot")
 
 
+async def take_picture():
+    output = await run_capture_check("php", "/var/www/html/make_photo.php")
+    return json.loads(output)
+
+
 # process management
 
 
@@ -290,6 +295,9 @@ async def process_messages(rx):
                         if status >= 400:
                             raise Exception("Could not stop WiFi (HTTP status %s)" % status)
                         logger.info("WiFi deactivated")
+                    elif data_type == "TAKE_PICTURE":
+                        logger.info("Taking a picture...")
+                        await take_picture()
                 except Exception as exc:
                     logger.exception("Could not answer to serial message: %s", exc)
 
@@ -555,8 +563,7 @@ async def route_delete_file(request):
 
 
 async def route_make_photo(_request):
-    output = await run_capture_check("php", "/var/www/html/make_photo.php")
-    res = json.loads(output)
+    res = await take_picture()
     return web.json_response({
         "success": True,
         "filename": res["filename"],
