@@ -47,8 +47,9 @@ CONFIG=/tmp/stereopi.conf \
 [PARAM_ASK|invalid_key|0x19359147]
 [PARAM_SET|audio_enabled:1|0x3b95c0da]
 [PARAM_SET|invalid_key:1|0x6bafad8b]
-[WIFI_ON||0xb8514cc0]
-[WIFI_OFF||0x3bd7cea7]
-[REC_START||0x349c5788]
-[REC_STOP||0xf0f9e341]
+[WIFI_ON|-|0xc012004]
+[WIFI_OFF|-|0xdf54527d]
+[REC_START|-|0x748a24bd]
+[REC_STOP|-|0x96f63b1d]
+[TAKE_PICTURE|-|0xa679117a]
 ```
