@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from aiohttp import web
-from asyncio import sleep, subprocess, gather, Lock, shield
+from asyncio import sleep, subprocess, gather, Lock, shield, TimeoutError, wait_for
 from collections import OrderedDict
 from json import JSONDecodeError
 import aiohttp
@@ -672,6 +672,44 @@ async def route_delete_preset(request):
         })
 
 
+async def route_sound_preview(request):
+    logger.debug("Preparing websocket...")
+    ws = web.WebSocketResponse(compress=False, autoping=False)
+    await ws.prepare(request)
+
+    logger.debug("Capturing microphone input...")
+    proc = await subprocess.create_subprocess_shell(
+        "arecord -D hw:1,0 -f s16_le -c 1 -r 44100 - | opusenc - -",
+        stdout=subprocess.PIPE,
+        limit=1000000,
+    )
+
+    try:
+        while not ws.closed and proc.returncode is None:
+            if proc.stdout.at_eof():
+                break
+            try:
+                data = await wait_for(proc.stdout.read(20000), 0.2)
+                logger.debug("Sending %s bytes...", len(data))
+                await ws.send_bytes(data)
+                await ws.ping()
+            except TimeoutError:
+                logger.warn("Recording timeout")
+
+    finally:
+        await ws.close()
+        if proc.returncode is None:
+            proc.terminate()
+            await sleep(2)
+            if proc.returncode is None:
+                proc.kill()
+        await proc.wait()
+
+    logger.debug('websocket connection closed')
+
+    return ws
+
+
 async def get_config(app):
     with open(app["stereopi_conf"], "rt") as fh:
         content = fh.read()
@@ -729,6 +767,7 @@ app.add_routes(
     web.get('/preset/{name}', route_get_preset),
     web.post('/preset/{name}', route_replace_preset),
     web.delete('/preset/{name}', route_delete_preset),
+    web.get('/sound', route_sound_preview),
     ]
 )
 
