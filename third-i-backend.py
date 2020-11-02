@@ -287,14 +287,32 @@ async def process_messages(rx):
                         logger.info("Activating WiFi...")
                         status = await start_wifi()
                         if status >= 400:
+                            send_message({
+                                "type": "WIFI_FAIL",
+                                "value": "-",
+                            })
                             raise Exception("Could not start WiFi (HTTP status %s)" % status)
-                        logger.info("WiFi activated")
+                        else:
+                            send_message({
+                                "type": "WIFI_SUCCESS",
+                                "value": "-",
+                            })
+                            logger.info("WiFi activated")
                     elif data_type == "WIFI_OFF":
                         logger.info("Deactivating WiFi...")
                         status = await stop_wifi()
                         if status >= 400:
+                            send_message({
+                                "type": "WIFI_FAIL",
+                                "value": "-",
+                            })
                             raise Exception("Could not stop WiFi (HTTP status %s)" % status)
-                        logger.info("WiFi deactivated")
+                        else:
+                            send_message({
+                                "type": "WIFI_SUCCESS",
+                                "value": "-",
+                            })
+                            logger.info("WiFi deactivated")
                     elif data_type == "TAKE_PICTURE":
                         logger.info("Taking a picture...")
                         await take_picture()
