@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from aiohttp import web
-from asyncio import sleep, subprocess, gather, Lock, shield, TimeoutError, wait_for
+from asyncio import sleep, subprocess, gather, Lock, shield
 from collections import OrderedDict
 from json import JSONDecodeError
 import aiohttp
@@ -697,22 +697,19 @@ async def route_sound_preview(request):
 
     logger.debug("Capturing microphone input...")
     proc = await subprocess.create_subprocess_shell(
-        "arecord -D hw:1,0 -f s16_le -c 1 -r 44100 - | opusenc - -",
+        "arecord -D hw:1,0 -f s16_le -c 2 -r 44800 - | opusenc --quiet - -",
         stdout=subprocess.PIPE,
-        limit=1000000,
+        limit=10000000,
     )
 
     try:
         while not ws.closed and proc.returncode is None:
             if proc.stdout.at_eof():
                 break
-            try:
-                data = await wait_for(proc.stdout.read(20000), 0.2)
-                logger.debug("Sending %s bytes...", len(data))
-                await ws.send_bytes(data)
-                await ws.ping()
-            except TimeoutError:
-                logger.warn("Recording timeout")
+            data = await proc.stdout.read(500000)
+            logger.debug("Sending %s bytes...", len(data))
+            await ws.send_bytes(data)
+            await ws.ping()
 
     finally:
         await ws.close()
