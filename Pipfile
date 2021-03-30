@@ -15,6 +15,3 @@ yapf = "*"
 [packages]
 aiohttp = "*"
 pyserial-asyncio = "*"
-
-[requires]
-python_version = "3.8"
