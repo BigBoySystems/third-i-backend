@@ -153,7 +153,8 @@ async def update_config(patch):
         logger.debug("Updatding configuration with: %r", patch)
         app["config"].update(patch)
         query_string = urllib.parse.urlencode(app["config"])
-        await run_check("php", "/var/www/html/saveconfig.php", query_string)
+        await updateData(query_string)
+        #await run_check("php", "/var/www/html/saveconfig.php", query_string)
         if "record_enabled" in patch:
             create_task(set_led(patch["record_enabled"] == "1"))
         return app["config"]
@@ -212,6 +213,41 @@ async def save_presets():
 async def take_picture():
     output = await run_capture_check("php", "/var/www/html/make_photo.php")
     return json.loads(output)
+
+
+#lecture du fichier de configuration 
+#return dico dictionnaire d'option du fichier de config
+async def readData(filename):
+    dico = {}
+    with open(filename) as f: #ouverture du fichier de config
+        lines = f.read()
+        l_data = lines.split()
+        for data in l_data:
+            #split les options et leurs valeurs 
+            # et les mettre en dictionnaire
+            new_data = data.split("=") 
+            dico[new_data[0]] = new_data[1]
+    return dico
+
+#écriture dans le fichier de configuration
+async def writeData(filename, dico):
+    result = []
+    #applanissement des termes du dictionnaire en format "key=value"
+    for i,j in dico.items():
+        result.append("%s=%s" % (i,j))
+    final='\n'.join(result)
+    #print(final)
+    #écriture dans le fichiers de configuration
+    with open(filename,"w") as f:
+        f.write(final)
+
+#Mise à jour du fichier de configuration
+async def updateData(data):
+    tab = await readData("/config/thirdi.conf")
+    key = list(data.keys())[0]
+    tab[key] = data[key]
+    print(tab)
+    await writeData("/config/thirdi.conf", tab) 
 
 
 # process management
