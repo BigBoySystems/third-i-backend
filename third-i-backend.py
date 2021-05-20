@@ -148,13 +148,16 @@ def verify_config(patch):
 
 async def update_config(patch):
     verify_config(patch)
-
     async with app["lock"]:
         logger.debug("Updatding configuration with: %r", patch)
         app["config"].update(patch)
-        query_string = urllib.parse.urlencode(app["config"])
-        await updateData(query_string)
+        #query_string = urllib.parse.urlencode(app["config"])
+        await updateData(patch)
         #await run_check("php", "/var/www/html/saveconfig.php", query_string)
+        # kill gstreamer
+        await run_check("/config/stop.sh")
+        # restart the pipes
+        await run_check("/config/third.sh")
         if "record_enabled" in patch:
             create_task(set_led(patch["record_enabled"] == "1"))
         return app["config"]
